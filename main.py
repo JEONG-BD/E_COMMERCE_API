@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, status, HTTPException
+from fastapi import FastAPI, Request, status, HTTPException, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates 
 
@@ -6,16 +6,51 @@ from tortoise import BaseDBAsyncClient
 from tortoise.signals import post_save
 from tortoise.contrib.fastapi import register_tortoise 
 
-from authentication import get_hashed_password, very_token
+from authentication import * 
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from models import * 
 from typing import List, Optional, Type 
 from emails import send_register_email
 import uvicorn 
 
-
 app = FastAPI()
+oauth2_schema = OAuth2PasswordBearer(tokenUrl='token')
 templtes = Jinja2Templates(directory='templates')
 
+@app.post('/token')
+async def generate_token(request_form: OAuth2PasswordRequestForm = Depends()):
+    token = await token_generator(request_form.username, request_form.password)
+    return {'access_token':token, 'token_type':'bearer'} 
+
+
+async def get_current_user(token: str = Depends(oauth2_schema)):
+    try :
+        payload = jwt.decode(token, config_credential['SECRET'], algorithms='HS256')
+        user = await User.get(id = payload.get('id'))
+        print(user, type(user), user.__dict__)
+    except :
+        raise HTTPException(
+            status_code= status.HTTP_401_UNAUTHORIZED, 
+            detail = 'Invalid username or password', 
+            headers = {'WWW-Authenticate':'Bearer'} 
+        ) 
+    return await user 
+
+@app.post('/user/me')
+async def user_login(user: user_pydanticIn = Depends(get_current_user)):
+    business = await Business.get(owner = user)
+    print(business.__dict__, type(business), business)
+    print("=================")
+    return {
+        'status': 'ok',
+        'data': {
+            'username': user.username, 
+            'email': user.email, 
+            'verified': user.is_verified, 
+            'joined_date': user.join_date.strftime('%b %d %Y')
+        }
+    }
+    
 
 @post_save(User)
 async def create_business(
@@ -37,7 +72,7 @@ async def create_business(
 
 @app.get('/verification', response_class=HTMLResponse)
 async def email_verification(request: Request, token: str):
-    user = await very_token(token)
+    user = await verify_token(token)
 
     if user and not user.is_verified :
         user.is_verified = True 
