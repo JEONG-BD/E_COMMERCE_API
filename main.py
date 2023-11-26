@@ -8,14 +8,23 @@ from tortoise.contrib.fastapi import register_tortoise
 
 from authentication import * 
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import File, UploadFile 
+from fastapi.staticfiles import StaticFiles 
+from PIL import Image
 from models import * 
 from typing import List, Optional, Type 
 from emails import send_register_email
+
+import secrets 
 import uvicorn 
 
 app = FastAPI()
+
 oauth2_schema = OAuth2PasswordBearer(tokenUrl='token')
+
 templtes = Jinja2Templates(directory='templates')
+
+app.mount('/static', StaticFiles(directory='static'), name='static')
 
 @app.post('/token')
 async def generate_token(request_form: OAuth2PasswordRequestForm = Depends()):
@@ -35,6 +44,7 @@ async def get_current_user(token: str = Depends(oauth2_schema)):
             headers = {'WWW-Authenticate':'Bearer'} 
         ) 
     return await user 
+
 
 @app.post('/user/me')
 async def user_login(user: user_pydanticIn = Depends(get_current_user)):
@@ -105,6 +115,46 @@ def index():
     return {'Message': "Hello world"}
 
 
+@app.post('/uploadfile/profile')
+async def create_upload_file(file: UploadFile = File(...), 
+                             user: user_pydantic = Depends(get_current_user)): 
+    FILEPATH = './static/images'
+    filename = file.filename 
+    extension = filename.split('.')[1]
+    
+    if extension not in ['png', 'jpg'] : 
+        return {
+            'status': 'error', 
+            'detail': 'File extenstion not allowed', 
+        }
+        
+    token_name = secrets.token_hex(10)+ '.' + extension 
+    generate_name = FILEPATH + token_name 
+    file_content = await file.read() 
+    
+    with open(generate_name, 'wb') as file : 
+        file.write(file_content)
+    
+    img = Image.open(generate_name)
+    img = img.resize(size = (200, 200))
+    img.save(generate_name)
+    
+    file.close()
+    
+    business = await Business.get(owner = user)
+    owner = await business.owner 
+    
+    if owner == user: 
+        business.logo = token_name 
+        await business.save() 
+    
+    raise HTTPException(
+            status_code = status.HTTP_401_UNAUTHORIZED,
+            detail='Not authenticated to perform this action', 
+            headers={'WWW-Authenticate': 'Bearer'}
+    )
+
+        
 register_tortoise(
     app, 
     db_url="postgres://admin:1234@localhost:5431/postgres",
