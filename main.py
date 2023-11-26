@@ -115,7 +115,7 @@ def index():
     return {'Message': "Hello world"}
 
 
-@app.post('/uploadfile/profile')
+@app.post('/uploadfile/profile', tags=['Upload File'])
 async def create_upload_file(file: UploadFile = File(...), 
                              user: user_pydantic = Depends(get_current_user)): 
     FILEPATH = './static/images'
@@ -153,8 +153,49 @@ async def create_upload_file(file: UploadFile = File(...),
             detail='Not authenticated to perform this action', 
             headers={'WWW-Authenticate': 'Bearer'}
     )
+    
 
+@app.post('/uploadfile/product/{id}', tags=['Upload File'])
+async def create_upload_file(id: int, file: UploadFile = File(...), 
+                             user : user_pydantic = Depends(get_current_user)):
+    FILEPATH = './static/images'
+    filename = file.filename 
+    extension = filename.split('.')[1]
+    
+    if extension not in ['png', 'jpg'] : 
+        return {
+            'status': 'error', 
+            'detail': 'File extenstion not allowed', 
+        }
         
+    token_name = secrets.token_hex(10)+ '.' + extension 
+    generate_name = FILEPATH + token_name 
+    file_content = await file.read() 
+    
+    with open(generate_name, 'wb') as file : 
+        file.write(file_content)
+    
+    img = Image.open(generate_name)
+    img = img.resize(size = (200, 200))
+    img.save(generate_name)
+    
+    file.close()
+    
+    product = await Product.get(id = id)
+    business = await product.business 
+    owner = await business.owner 
+    
+    if owner == user : 
+        product.product_image = token_name 
+        await product.save() 
+    
+    raise HTTPException(
+            status_code = status.HTTP_401_UNAUTHORIZED,
+            detail='Not authenticated to perform this action', 
+            headers={'WWW-Authenticate': 'Bearer'}
+    )
+
+    
 register_tortoise(
     app, 
     db_url="postgres://admin:1234@localhost:5431/postgres",
