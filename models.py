@@ -33,6 +33,7 @@ class Product(Model):
     offer_expiration_date = fields.DateField(default=datetime.utcnow)
     product_image = fields.CharField(max_length=200, null=False, default='productDefault.jpg')
     business = fields.ForeignKeyField("models.Business", related_name="product")
+    date_pulished = fields.DatetimeField(default=datetime.utcnow)
 
 
 
