@@ -49,15 +49,21 @@ async def get_current_user(token: str = Depends(oauth2_schema)):
 @app.post('/user/me')
 async def user_login(user: user_pydanticIn = Depends(get_current_user)):
     business = await Business.get(owner = user)
-    print(business.__dict__, type(business), business)
-    print("=================")
+    logo = business.logo 
+    print(logo, type(logo))
+    
+    logo_path = 'localhost:8000/static/images/'+logo 
+    
+    
+    
     return {
         'status': 'ok',
         'data': {
             'username': user.username, 
             'email': user.email, 
             'verified': user.is_verified, 
-            'joined_date': user.join_date.strftime('%b %d %Y')
+            'joined_date': user.join_date.strftime('%b %d %Y'),
+            'logo': logo_path
         }
     }
     
@@ -118,7 +124,7 @@ def index():
 @app.post('/uploadfile/profile', tags=['Upload File'])
 async def create_upload_file(file: UploadFile = File(...), 
                              user: user_pydantic = Depends(get_current_user)): 
-    FILEPATH = './static/images'
+    FILEPATH = './static/images/'
     filename = file.filename 
     extension = filename.split('.')[1]
     
@@ -188,14 +194,89 @@ async def create_upload_file(id: int, file: UploadFile = File(...),
     if owner == user : 
         product.product_image = token_name 
         await product.save() 
+        return await product_pydantic.from_tortoise_orm(product)
+    else:
+        raise HTTPException(
+                status_code = status.HTTP_401_UNAUTHORIZED,
+                detail='Not authenticated to perform this action', 
+                headers={'WWW-Authenticate': 'Bearer'}
+        )
     
-    raise HTTPException(
+
+@app.post('/products')
+async def add_new_product(product: product_pydanticIn,
+                          user : user_pydantic = Depends(get_current_user)):
+    print('-----------------')
+    product = product.dict(exclude_unset = True)
+    
+    if product['original_price'] > 0: 
+        product['percentage_discount'] = ((product['original_price'] - product['new_price']) / product['original_price']) * 100 
+        
+        product_obj = await Product.create(**product, business = user) 
+        product_obj = await product_pydantic.from_tortoise_orm(product_obj)
+        print(product_obj, type(product_obj), product_obj.__dict__)
+        print('--------')        
+        return {
+            'status': 'ok', 
+            'data': product_obj
+        }
+    
+    else :
+        return {
+            'status': 'error', 
+        }
+
+
+@app.get('/product')
+async def get_product():
+    response = await product_pydantic.from_queryset(Product.all())
+    
+    return {
+        'status': 'ok',
+        'data': response    
+    }
+
+
+@app.get('/product/{id}')
+async def get_product(id: int):
+    product = await Product.get(id = id)
+    business = await product.business 
+    owner = await business.owner 
+    response = await product_pydantic.from_queryset_single(Product.get(id = id))
+    
+    return {
+        'status': 'ok',
+        'data': {
+            'product_detail': response, 
+            'business_detail': {
+                'name': business.business_name, 
+                'city': business.city, 
+                'region': business.region, 
+                'logo': business.logo, 
+                'description': business.business_description, 
+                'owner_id': owner.id, 
+                'email': owner.email, 
+                'join_date': owner.join_date.strftime('%b %d %Y')
+            }     
+        }
+    }
+
+@app.delete('/product/{id}')
+async def delete_product(id: int, user: user_pydantic = Depends(get_current_user)):
+    product = await Product.get(id = id)
+    business = await product.business 
+    owner = await business.owner
+    
+    if user == owner : 
+        product.delete()
+    else :
+        raise HTTPException(
             status_code = status.HTTP_401_UNAUTHORIZED,
             detail='Not authenticated to perform this action', 
             headers={'WWW-Authenticate': 'Bearer'}
     )
-
     
+        
 register_tortoise(
     app, 
     db_url="postgres://admin:1234@localhost:5431/postgres",
