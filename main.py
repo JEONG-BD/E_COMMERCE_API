@@ -311,7 +311,33 @@ async def update_product(id: int,
             detail='Not authenticated to perform this action', 
             headers={'WWW-Authenticate': 'Bearer'}
     )
-        
+
+
+@app.put('/business/{id}')
+async def update_business(id: int, 
+                          update_business : business_pydanticIn, 
+                          user: user_pydantic = Depends(get_current_user)):
+    update_business = update_business.dict()
+    
+    business = await Business.get(id = id)
+    business_owner = await business.owner 
+    
+    if user == business_owner :
+        await business.update_from_dict(update_business)
+        business.save()
+        response = await business_pydantic.from_tortoise_orm(business)
+        return {
+            'status': 'ok', 
+            'data': response 
+        }
+    else :
+        raise HTTPException(
+            status_code = status.HTTP_401_UNAUTHORIZED,
+            detail='Not authenticated to perform this action', 
+            headers={'WWW-Authenticate': 'Bearer'}
+    )    
+
+
         
 register_tortoise(
     app, 
